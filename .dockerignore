@@ -1,0 +1,48 @@
+# Docker ignore file
+# Files and directories to exclude from Docker build context
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+build
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+test
+tests
+*.test.ts
+*.spec.ts
+
+# Misc
+coverage
+.nyc_output
+.cache
+

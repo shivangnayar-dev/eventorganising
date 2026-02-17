@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  PROVIDER
+  MANAGER
+  ADMIN
+  NODAL_OFFICER
+}
+
+model User {
+  id                      String                       @id @default(auto()) @map("_id") @db.ObjectId
+  email                   String                       @unique
+  passwordHash            String
+  fullName                String
+  phone                   String?
+  roles                   Role[]
+  providerProfile         ServiceProvider?
+  services                ServiceListing[]             @relation("OwnerServices")
+  managedServices         ServiceListing[]             @relation("ManagerServices")
+  bookings                Booking[]                    @relation("UserBookings")
+  managerAssignments      VerificationAssignment[]     @relation("ManagerAssignments")
+  reviews                 Review[]
+  nodalOfficerAssignments NodalOfficerAssignment[]     @relation("NodalOfficerAssignments")
+  assignedServices        ServiceListing[]             @relation("NodalOfficerServices")
+  recommendedOfficers     NodalOfficerRecommendation[] @relation("RecommendedOfficer")
+  recommendationsByMe     NodalOfficerRecommendation[] @relation("RecommendedByManager")
+  managerAssignment       ManagerAssignment?           @relation("ManagerAssignment")
+  refreshTokens            RefreshToken[]               @relation("UserRefreshTokens")
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+}
+
+model Role {
+  id     String   @id @default(auto()) @map("_id") @db.ObjectId
+  role   UserRole
+  userId String   @db.ObjectId
+  user   User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, role])
+}
+
+model ServiceProvider {
+  id             String                   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String                   @unique @db.ObjectId
+  kycDocumentUrl String?
+  pricingDetails String?
+  photos         Json?
+  status         ProviderStatus           @default(PENDING)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  user           User                     @relation(fields: [userId], references: [id])
+  assignments    VerificationAssignment[] @relation("ProviderAssignments")
+  payments       Payment[]
+}
+
+enum ProviderStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ServiceListing {
+  id                String                   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId           String                   @db.ObjectId
+  assignedManagerId String?                 @db.ObjectId // Manager assigned by admin to oversee verification
+  assignedNodalOfficerId String?             @db.ObjectId // Nodal officer assigned by manager
+  title             String
+  description       String
+  location          String
+  address           String?
+  pincode           String?
+  eventTypes        String? // Comma-separated: "Weddings,Corporate"
+  propertyType      String? // Venue type: "Banquet Hall", "Outdoor Lawn", etc.
+  capacity          Int?
+  amenities         String? // JSON or comma-separated
+  photos            Json? // Array of image URLs
+  price             Float
+  status            ServiceStatus            @default(PENDING)
+  submittedAt       DateTime                 @default(now())
+  publishedAt       DateTime?
+  owner             User                     @relation("OwnerServices", fields: [ownerId], references: [id])
+  assignedManager   User?                    @relation("ManagerServices", fields: [assignedManagerId], references: [id])
+  assignedNodalOfficer User?                 @relation("NodalOfficerServices", fields: [assignedNodalOfficerId], references: [id])
+  verificationTasks VerificationAssignment[] @relation("ServiceAssignments")
+  bookings          Booking[]                @relation("ServiceBookings")
+  reviews           Review[]
+}
+
+enum ServiceStatus {
+  PENDING
+  ASSIGNED
+  VERIFIED
+  REJECTED
+  PUBLISHED
+}
+
+model VerificationAssignment {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  serviceId     String             @db.ObjectId
+  providerId    String             @db.ObjectId
+  assignedById  String             @db.ObjectId
+  status        VerificationStatus @default(PENDING)
+  notes         String?
+  requestedInfo String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  service       ServiceListing     @relation("ServiceAssignments", fields: [serviceId], references: [id])
+  provider      ServiceProvider    @relation("ProviderAssignments", fields: [providerId], references: [id])
+  assignedBy    User               @relation("ManagerAssignments", fields: [assignedById], references: [id])
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INFO_REQUESTED
+}
+
+model Booking {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  serviceId     String         @db.ObjectId
+  userId        String         @db.ObjectId
+  scheduledDate DateTime
+  status        BookingStatus  @default(CONFIRMED)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  service       ServiceListing @relation("ServiceBookings", fields: [serviceId], references: [id])
+  user          User           @relation("UserBookings", fields: [userId], references: [id])
+  payment       Payment?
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Payment {
+  id          String           @id @default(auto()) @map("_id") @db.ObjectId
+  bookingId   String           @unique @db.ObjectId
+  amount      Float
+  status      PaymentStatus    @default(PENDING)
+  providerId  String?          @db.ObjectId
+  processedAt DateTime?
+  booking     Booking          @relation(fields: [bookingId], references: [id])
+  provider    ServiceProvider? @relation(fields: [providerId], references: [id])
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model Review {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  serviceId String         @db.ObjectId
+  userId    String         @db.ObjectId
+  rating    Int
+  comment   String?
+  createdAt DateTime       @default(now())
+  service   ServiceListing @relation(fields: [serviceId], references: [id])
+  user      User           @relation(fields: [userId], references: [id])
+}
+
+// Nodal Officer Assignment - Officers assigned to areas/regions by admin
+model NodalOfficerAssignment {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  officerId String @db.ObjectId // User with NODAL_OFFICER role
+  officer   User   @relation("NodalOfficerAssignments", fields: [officerId], references: [id], onDelete: Cascade)
+
+  // Area/Region details
+  area     String // e.g., "Downtown", "North Zone"
+  location String // City/District
+  address  String? // Full address
+  pincode  String? // Postal code
+  region   String? // State/Province
+
+  status NodalOfficerStatus @default(ACTIVE)
+  notes  String?
+
+  assignedBy String? // Admin who assigned
+  assignedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([officerId, area, location]) // One officer per area/location combination
+  @@index([location, pincode]) // For area-based queries
+  @@index([status])
+}
+
+enum NodalOfficerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// Manager Recommendation - Managers can recommend officers for areas
+model NodalOfficerRecommendation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Officer being recommended (optional - can be null for new user recommendations)
+  officerId String? @db.ObjectId
+  officer   User?   @relation("RecommendedOfficer", fields: [officerId], references: [id], onDelete: Cascade)
+
+  // New user details (for new user recommendations)
+  newUserEmail    String? // Email of new user to be created
+  newUserFullName String? // Full name of new user
+  newUserPhone    String? // Phone of new user
+
+  // Manager making the recommendation
+  managerId String @db.ObjectId
+  manager   User   @relation("RecommendedByManager", fields: [managerId], references: [id], onDelete: Cascade)
+
+  // Area/Region details
+  area     String
+  location String
+  address  String?
+  pincode  String?
+  region   String?
+
+  // Recommendation details
+  reason String? // Why manager recommends this officer
+  status RecommendationStatus @default(PENDING)
+  notes  String?
+
+  // Admin approval
+  reviewedBy String? // Admin who reviewed
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([managerId])
+  @@index([status])
+  @@index([location, area])
+}
+
+enum RecommendationStatus {
+  PENDING // Awaiting admin approval
+  APPROVED // Approved - officer will be assigned to area
+  REJECTED // Rejected by admin
+}
+
+// Manager Assignment - Managers assigned to areas/regions by admin
+model ManagerAssignment {
+  id        String @id @default(auto()) @map("_id") @db.ObjectId
+  managerId String @unique @db.ObjectId // User with MANAGER role
+  manager   User   @relation("ManagerAssignment", fields: [managerId], references: [id], onDelete: Cascade)
+
+  // Area/Region details
+  area     String // e.g., "Downtown", "North Zone"
+  location String // City/District
+  address  String? // Full address
+  pincode  String? // Postal code
+  region   String? // State/Province
+
+  status ManagerAssignmentStatus @default(ACTIVE)
+  notes  String?
+
+  assignedBy String? // Admin who assigned
+  assignedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([location, pincode]) // For area-based queries
+  @@index([status])
+}
+
+enum ManagerAssignmentStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// Service Category - Service types that can be shown in navbar dropdown
+model ServiceCategory {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  name         String   @unique // e.g., "Wedding Planning", "Catering"
+  description  String?
+  showInNavbar Boolean  @default(false) // Whether to show in navbar dropdown
+  displayOrder Int      @default(0) // Order in which to display in navbar
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([showInNavbar, isActive])
+  @@index([displayOrder])
+}
+
+// Refresh Token - For secure token refresh pattern
+model RefreshToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique // Hashed refresh token
+  deviceId  String?  // Optional: device identifier
+  ipAddress String?  // Optional: IP address for security
+  userAgent String?  // Optional: browser/user agent
+  expiresAt DateTime // Token expiration date
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime? // Track last usage for security
+
+  @@index([userId])
+  @@index([expiresAt]) // For cleanup of expired tokens
+}
