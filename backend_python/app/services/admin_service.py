@@ -6,7 +6,8 @@ from datetime import datetime
 from app.models.user import User, Role, UserRole
 from app.models.service_listing import ServiceListing, ServiceStatus
 from app.models.verification import VerificationAssignment
-from app.models.booking import Booking
+from app.models.booking import Booking, Payment
+from app.models.review import Review
 from app.models.manager import ManagerAssignment, ManagerAssignmentStatus
 from app.models.nodal_officer import (
     NodalOfficerAssignment,
@@ -67,53 +68,137 @@ class AdminService:
         services = await ServiceListing.find({}).to_list()
         result = []
         for service in services:
-            assigned_manager = None
-            if service.assigned_manager_id:
-                try:
-                    assigned_manager = await User.find_one({"_id": service.assigned_manager_id})
-                except:
-                    try:
-                        from bson import ObjectId
-                        assigned_manager = await User.find_one({"_id": ObjectId(service.assigned_manager_id)})
-                    except:
-                        pass
-            
-            # Manual conversion to avoid _id serialization issues
-            service_dict = {
-                "id": str(service.id),
-                "ownerId": str(service.owner_id) if service.owner_id else None,
-                "assignedManagerId": str(service.assigned_manager_id) if service.assigned_manager_id else None,
-                "assignedNodalOfficerId": str(service.assigned_nodal_officer_id) if service.assigned_nodal_officer_id else None,
-                "title": service.title,
-                "description": service.description,
-                "location": service.location,
-                "address": service.address,
-                "pincode": service.pincode,
-                "eventTypes": service.event_types,
-                "propertyType": service.property_type,
-                "capacity": service.capacity,
-                "amenities": service.amenities,
-                "photos": service.photos or [],
-                "price": service.price,
-                "status": service.status.value if hasattr(service.status, "value") else str(service.status),
-                "submittedAt": service.submitted_at.isoformat() if service.submitted_at else None,
-                "publishedAt": service.published_at.isoformat() if service.published_at else None,
-            }
-            
-            manager_dict = None
-            if assigned_manager:
-                manager_dict = {
-                    "id": str(assigned_manager.id),
-                    "email": assigned_manager.email,
-                    "fullName": assigned_manager.full_name,
-                    "phone": assigned_manager.phone,
-                }
-            
-            result.append({
-                **service_dict,
-                "assignedManager": manager_dict,
-            })
+            result.append(await AdminService._serialize_service(service))
         return result
+
+    @staticmethod
+    async def update_service(service_id: str, data: dict) -> dict:
+        """Update a service listing"""
+        service = await ServiceListing.get(service_id)
+        if not service:
+            raise HttpError(404, "Service not found")
+
+        if "title" in data:
+            service.title = data["title"]
+        if "description" in data:
+            service.description = data["description"]
+        if "location" in data:
+            service.location = data["location"]
+        if "address" in data:
+            service.address = data["address"]
+        if "pincode" in data:
+            service.pincode = data["pincode"]
+        if "eventTypes" in data:
+            service.event_types = data["eventTypes"]
+        if "propertyType" in data:
+            service.property_type = data["propertyType"]
+        if "capacity" in data:
+            service.capacity = data["capacity"]
+        if "amenities" in data:
+            service.amenities = data["amenities"]
+        if "photos" in data:
+            service.photos = data["photos"]
+        if "price" in data:
+            service.price = data["price"]
+        if "status" in data and data["status"] is not None:
+            try:
+                status = ServiceStatus(data["status"])
+            except Exception:
+                status = ServiceStatus(data["status"].upper())
+            service.status = status
+            if status == ServiceStatus.PUBLISHED:
+                service.published_at = datetime.utcnow()
+            elif service.published_at is not None:
+                service.published_at = None
+
+        await service.save()
+        return await AdminService._serialize_service(service)
+
+    @staticmethod
+    async def delete_service(service_id: str) -> None:
+        """Delete a service listing and related records"""
+        service = await ServiceListing.get(service_id)
+        if not service:
+            raise HttpError(404, "Service not found")
+
+        bookings = await Booking.find({"serviceId": service_id}).to_list()
+        booking_ids = [str(b.id) for b in bookings]
+        await Booking.find({"serviceId": service_id}).delete()
+        if booking_ids:
+            await Payment.find({"bookingId": {"$in": booking_ids}}).delete()
+
+        await Review.find({"serviceId": service_id}).delete()
+        await VerificationAssignment.find({"serviceId": service_id}).delete()
+        await service.delete()
+
+    @staticmethod
+    async def _serialize_service(service: ServiceListing) -> dict:
+        assigned_manager = None
+        if service.assigned_manager_id:
+            try:
+                assigned_manager = await User.find_one({"_id": service.assigned_manager_id})
+            except Exception:
+                try:
+                    from bson import ObjectId
+                    assigned_manager = await User.find_one({"_id": ObjectId(service.assigned_manager_id)})
+                except Exception:
+                    assigned_manager = None
+
+        owner_user = None
+        if service.owner_id:
+            try:
+                owner_user = await User.find_one({"_id": service.owner_id})
+            except Exception:
+                try:
+                    from bson import ObjectId
+                    owner_user = await User.find_one({"_id": ObjectId(service.owner_id)})
+                except Exception:
+                    owner_user = None
+
+        service_dict = {
+            "id": str(service.id),
+            "ownerId": str(service.owner_id) if service.owner_id else None,
+            "assignedManagerId": str(service.assigned_manager_id) if service.assigned_manager_id else None,
+            "assignedNodalOfficerId": str(service.assigned_nodal_officer_id) if service.assigned_nodal_officer_id else None,
+            "title": service.title,
+            "description": service.description,
+            "location": service.location,
+            "address": service.address,
+            "pincode": service.pincode,
+            "eventTypes": service.event_types,
+            "propertyType": service.property_type,
+            "capacity": service.capacity,
+            "amenities": service.amenities,
+            "photos": service.photos or [],
+            "price": service.price,
+            "status": service.status.value if hasattr(service.status, "value") else str(service.status),
+            "submittedAt": service.submitted_at.isoformat() if service.submitted_at else None,
+            "publishedAt": service.published_at.isoformat() if service.published_at else None,
+        }
+
+        manager_dict = None
+        if assigned_manager:
+            manager_dict = {
+                "id": str(assigned_manager.id),
+                "email": assigned_manager.email,
+                "fullName": assigned_manager.full_name,
+                "phone": assigned_manager.phone,
+            }
+
+        owner_dict = None
+        if owner_user:
+            owner_dict = {
+                "id": str(owner_user.id),
+                "email": owner_user.email,
+                "fullName": owner_user.full_name,
+                "phone": owner_user.phone,
+            }
+
+        return {
+            **service_dict,
+            "assignedManager": manager_dict,
+            "owner": owner_dict,
+        }
     
     @staticmethod
     async def list_verifications() -> List[dict]:

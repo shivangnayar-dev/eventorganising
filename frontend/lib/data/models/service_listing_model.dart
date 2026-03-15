@@ -20,6 +20,7 @@ class ServiceListingModel extends ServiceListingEntity {
     super.capacity,
     super.amenities,
     super.photos,
+    super.owner,
     super.assignedManagerId,
     super.assignedManager,
     super.assignedNodalOfficerId,
@@ -51,6 +52,9 @@ class ServiceListingModel extends ServiceListingEntity {
       amenities: json['amenities']?.toString(),
       photos: json['photos'] != null
           ? (json['photos'] as List<dynamic>).map((e) => e.toString()).toList()
+          : null,
+      owner: json['owner'] != null
+          ? UserModel.fromJson(json['owner'] as Map<String, dynamic>)
           : null,
       assignedManagerId: json['assignedManagerId']?.toString(),
       assignedManager: json['assignedManager'] != null

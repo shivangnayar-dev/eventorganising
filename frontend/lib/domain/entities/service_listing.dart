@@ -22,6 +22,7 @@ class ServiceListingEntity extends Equatable {
     this.capacity,
     this.amenities,
     this.photos,
+    this.owner,
     this.assignedManagerId,
     this.assignedManager,
     this.assignedNodalOfficerId,
@@ -44,6 +45,7 @@ class ServiceListingEntity extends Equatable {
   final int? capacity;
   final String? amenities;
   final List<String>? photos;
+  final UserEntity? owner;
   final String? assignedManagerId;
   final UserEntity? assignedManager;
   final String? assignedNodalOfficerId;
@@ -69,6 +71,7 @@ class ServiceListingEntity extends Equatable {
         capacity,
         amenities,
         photos,
+        owner,
         assignedManagerId,
         assignedManager,
         assignedNodalOfficerId,
